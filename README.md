@@ -34,23 +34,23 @@ foosball.py: Contains the Ball and Pitch class definitions (Simulation environme
 
 
 TODOS:
-- [x] **Thu, Apr 2: Steps 1-5 · Pure math layer** 
+- [x] **Thu, Apr 2: Steps 1-5 · Pure math layer** *gradient_strategy.py*
   - [x] `gauss_grad`
   - [x] `sombrero_grad`
   - [x] `slope_grad`
   - [x] `boundary_grad`
 
-- [ ] **Fri, Apr 3: Steps 6-8 · Field composition** 
+- [ ] **Fri, Apr 3: Steps 6-8 · Field composition** *gradient_strategy.py*
   - [ ] `total_gradient`: Sum up the math layers.
   - [ ] `sort_players_by_distance`: Logic to determine who is closest to the ball.
   - [ ] `propose_move`: Generate the raw movement vectors based on the combined gradients.
 
-- [ ] **Sat, Apr 4: Steps 9-11 · Movement constraints** 
+- [ ] **Sat, Apr 4: Steps 9-11 · Movement constraints** *gradient_strategy.py*
   - [ ] `enforce_run`: Cap maximum speed / stamina logic.
   - [ ] `enforce_clearance`: Prevent players from running out of bounds or into each other.
   - [ ] `ball_carrier_action`: Specific logic for the player who currently has the ball (e.g., passing vs. shooting).
 
-- [ ] **Sun, Apr 5: Step 12 · Assemble gradient_strategy** *(integrate)*
+- [ ] **Sun, Apr 5: Step 12 · Assemble gradient_strategy** *(integrate into foosball.py)*
   - [ ] Compose all previous steps into the final engine.
   - [ ] First full game run!
   - [ ] Test our AI against the baseline `easy_strategy`.
@@ -64,7 +64,7 @@ TODOS:
   - [ ] Run win-rate tests (play 100+ simulated games to get win %).
   - [ ] Factor in `velocity` from `prev_state` to add momentum to player movement.
 
-- [ ] **Wed, Apr 8: 🚨 DEADLINE — Hand in**
+- [ ] **Wed, Apr 8: DEADLINE — Hand in**
 
 
 
