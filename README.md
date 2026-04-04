@@ -26,6 +26,7 @@ Functions:
 | total_gradient | superposition of all potentials, USES COMMITED_MOVES instead of given moves of own team |
 | sort_players_by_distance | Will give order in which players should play |
 | propose_move | Takes gradient and produces candidate move (steepest-descent with fixed step size). will ALWAYS move the full 10m in the gradient descent direction. in case of a saddle point or a symmetric position, default towards the ball |
+|enforce_run_distance| called after propose_move to avoid violating upper bound (MAX_RUNNING_DISTANCE after ball_clearance)|
 
 
 
@@ -50,7 +51,7 @@ TODOS:
   - [x] `propose_move`: Generate the raw movement vectors based on the combined gradients.
 
 - [ ] **Sat, Apr 4: Steps 9-11 · Movement constraints** *gradient_strategy.py*
-  - [ ] `enforce_run`: Cap maximum speed / stamina logic.
+  - [x] `enforce_run_distance`: Cap maximum speed / stamina logic.
   - [ ] `enforce_clearance`: Prevent players from running out of bounds or into each other.
   - [ ] `ball_carrier_action`: Specific logic for the player who currently has the ball (e.g., passing vs. shooting).
 
