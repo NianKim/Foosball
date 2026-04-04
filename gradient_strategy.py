@@ -171,3 +171,21 @@ def propose_move(pos:         np.ndarray,
 
     step = DistanceLimits.MAX_RUNNING_DISTANCE - 1e-5
     return pos + direction * step
+
+
+# PRE:  pos_from and pos_to are 2D points. min_d >= 0, max_d > min_d.
+# POST: a point at the same direction from pos_from as pos_to,
+#       but with distance clamped to [min_d, max_d].
+#       If pos_to == pos_from (zero direction), nudges along +x as fallback.
+def enforce_run_distance(pos_from: np.ndarray, pos_to: np.ndarray,
+                         min_d: float, max_d: float) -> np.ndarray:
+    diff = pos_to - pos_from
+    d    = np.linalg.norm(diff)
+
+    if d < EPS:
+        diff = np.array([1.0, 0.0])  # no direction info — nudge along +x
+        d    = 1.0
+
+    d_clamped = np.clip(d, min_d, max_d)
+    return pos_from + (diff / d) * d_clamped
+
