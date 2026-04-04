@@ -214,3 +214,59 @@ def clamp_to_pitch(pos: np.ndarray, margin: float = 0.05) -> np.ndarray:
     return np.clip(pos,
                    [-Pitch.X_BOUND + margin, -Pitch.Y_BOUND + margin],
                    [ Pitch.X_BOUND - margin,  Pitch.Y_BOUND - margin])
+
+
+# ── Ball carrier ──────────────────────────────────────────────────────────────
+ 
+# PRE:  ball_coords is the carrier's current 2D position.
+#       own_coords should be new_coords (committed future positions of teammates).
+#       own_team is 0 or 1.
+# POST: target 2D point for the carrier's move (always 3–20m from ball_coords).
+#       Priority: (1) shoot if goal in range, (2) pass to most forward teammate,
+#       (3) pass any direction in range, (4) emergency clearance to empty space.
+#       No dribbling — carrier must move the ball every turn.
+def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
+                        own_team: int) -> np.ndarray:
+    sign   = 1.0 if own_team == 0 else -1.0
+    goal_x = Pitch.X_BOUND * sign
+ 
+    MIN_PASS = DistanceLimits.MIN_SHOOTING_DISTANCE + 0.05   # 3.05m
+    MAX_PASS = DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05   # 19.95m
+ 
+    # Priority 1: shoot if goal is within range
+    dist_to_goal = abs(goal_x - ball_coords[0])
+    if dist_to_goal <= MAX_PASS:
+        target  = np.array([goal_x, ball_coords[1]])
+        to_goal = target - ball_coords
+        return ball_coords + (to_goal / np.linalg.norm(to_goal)) * MAX_PASS
+ 
+    # Collect all teammates in legal passing range, scored by forwardness
+    in_range = []
+    for coord in own_coords:
+        d = np.linalg.norm(coord - ball_coords)
+        if MIN_PASS < d < MAX_PASS:
+            forwardness = coord[0] * sign
+            in_range.append((forwardness, coord))
+ 
+    # Priority 2: pass to most forward teammate in range
+    if in_range:
+        in_range.sort(key=lambda x: -x[0])
+        return in_range[0][1].copy()
+ 
+    # Priority 3: no teammate in range — emergency clearance to empty pitch space
+    for direction in [
+        np.array([ sign,  0.0]),
+        np.array([ sign,  0.8]),
+        np.array([ sign, -0.8]),
+        np.array([ 0.0,   1.0]),
+        np.array([ 0.0,  -1.0]),
+        np.array([-sign,  0.0]),
+    ]:
+        direction = direction / np.linalg.norm(direction)
+        target    = clamp_to_pitch(ball_coords + direction * MAX_PASS)
+        if np.linalg.norm(target - ball_coords) >= MIN_PASS:
+            return target
+ 
+    # Unreachable on a legal pitch position, but never crash
+    return clamp_to_pitch(ball_coords + np.array([sign, 0.0]) * MAX_PASS)
+ 
