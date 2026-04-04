@@ -17,12 +17,15 @@ Foosball AI: MindPhair 2026 Strategy
 
 
 Functions:
-| Command | Description |
+| Function | Description |
 | --- | --- |
 | boundary_grad | Boundary Repulsion: Exponential force "walls" that keep players inside the pitch. |
 | gauss_grad | Gaussian Hills: Repulsive fields around players to avoid collisions. |
 | slope_grad | Goal slopes: Will pull players towards own goal or enemy based on who has posession. |
 | sombrero_grad | Oscillating "ripples" to simulate passing distances of players. |
+| total_gradient | superposition of all potentials, USES COMMITED_MOVES instead of given moves of own team |
+| sort_players_by_distance | Will give order in which players should play |
+| propose_move | Takes gradient and produces candidate move (steepest-descent with fixed step size). will ALWAYS move the full 10m in the gradient descent direction. in case of a saddle point or a symmetric position, default towards the ball |
 
 
 
@@ -40,10 +43,11 @@ TODOS:
   - [x] `slope_grad`
   - [x] `boundary_grad`
 
-- [ ] **Fri, Apr 3: Steps 6-8 · Field composition** *gradient_strategy.py*
-  - [ ] `total_gradient`: Sum up the math layers.
-  - [ ] `sort_players_by_distance`: Logic to determine who is closest to the ball.
-  - [ ] `propose_move`: Generate the raw movement vectors based on the combined gradients.
+- [x] **Fri, Apr 3: Steps 6-8 · Field composition** *gradient_strategy.py*
+  - [x] `total_gradient`: Sum up the math layers.
+  - [x] `sort_players_by_distance`: Logic to determine who is closest to the ball.
+  - [ ] `sort_players_by_distance`: Careful of possibility that a player has the ball (then he is the closest but shouldn't be the first to move (at all))
+  - [x] `propose_move`: Generate the raw movement vectors based on the combined gradients.
 
 - [ ] **Sat, Apr 4: Steps 9-11 · Movement constraints** *gradient_strategy.py*
   - [ ] `enforce_run`: Cap maximum speed / stamina logic.
