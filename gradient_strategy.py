@@ -208,3 +208,9 @@ def enforce_ball_clearance(pos: np.ndarray, ball_coords: np.ndarray,
 
     return ball_coords + (diff / d) * (min_dist + 0.05)
 
+ # PRE:  pos is a 2D point, possibly outside pitch bounds.
+# POST: pos moved to pitch interior with a small margin from the edge.
+def clamp_to_pitch(pos: np.ndarray, margin: float = 0.05) -> np.ndarray:
+    return np.clip(pos,
+                   [-Pitch.X_BOUND + margin, -Pitch.Y_BOUND + margin],
+                   [ Pitch.X_BOUND - margin,  Pitch.Y_BOUND - margin])

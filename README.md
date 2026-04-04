@@ -7,6 +7,9 @@ Every turn our strategy recieves the current game state (coordinates of every pl
 By assigning a "potential field" to every object (see Strategy table) and making a superposition of all fields we get a 3D topographic map.
 The movement logic and decision making process of every player is based on the 3D topographic map which players "roll" down hills and get pushed back by walls.
 
+call chain of Players without the ball:
+propose_move → enforce_ball_clearance → enforce_run_distance → clamp_to_pitch.
+
 Strategy table:
 Foosball AI: MindPhair 2026 Strategy
 |               | Own Players   | Opp Players   | Ball          | Global       |
@@ -28,7 +31,7 @@ Functions:
 | propose_move | Takes gradient and produces candidate move (steepest-descent with fixed step size). will ALWAYS move the full 10m in the gradient descent direction. in case of a saddle point or a symmetric position, default towards the ball |
 |enforce_run_distance| called after propose_move to avoid violating upper bound (MAX_RUNNING_DISTANCE after ball_clearance)|
 |enforce_clearance| pushes candidate_move to min_dist + buffer along same radial direction. (make sure complies with `is_strategy_output_valid`) |
-
+|clamp_to_pitch|moves candidate_move to pitch interior with small margin (0.05)|
 
 
 
@@ -54,6 +57,7 @@ TODOS:
 - [ ] **Sat, Apr 4: Steps 9-11 · Movement constraints** *gradient_strategy.py*
   - [x] `enforce_run_distance`: Cap maximum distance to not overshoot MAX_RUNNING_DISTANCE after `enforce_clearance`.
   - [x] `enforce_clearance`: Prevent players from running out of bounds or into each other. (might tune for passing)
+  - [x] `clamp_to_pitch`: clip to pitch interor.
   - [ ] `ball_carrier_action`: Specific logic for the player who currently has the ball (e.g., passing vs. shooting).
 
 - [ ] **Sun, Apr 5: Step 12 · Assemble gradient_strategy** *(integrate into foosball.py)*
