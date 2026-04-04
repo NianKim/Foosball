@@ -32,6 +32,7 @@ Functions:
 |enforce_run_distance| called after propose_move to avoid violating upper bound (MAX_RUNNING_DISTANCE after ball_clearance)|
 |enforce_clearance| pushes candidate_move to min_dist + buffer along same radial direction. (make sure complies with `is_strategy_output_valid`) |
 |clamp_to_pitch|moves candidate_move to pitch interior with small margin (0.05)|
+|ball_carrier_action|takes new_coords (commited future positions of teammates) and has three priorities: 1) shoot if goal in range 2) pass to most forward teammate 3) pass any direction in range 4) emergency clearance to empty space|
 
 
 
@@ -54,11 +55,11 @@ TODOS:
   - [x] `sort_players_by_distance`: Logic to determine who is closest to the ball. (Careful of possibility that a player has the ball. Then he is the closest but shouldn't be the first to move at all.)
   - [x] `propose_move`: Generate the raw movement vectors based on the combined gradients.
 
-- [ ] **Sat, Apr 4: Steps 9-11 · Movement constraints** *gradient_strategy.py*
+- [x] **Sat, Apr 4: Steps 9-11 · Movement constraints** *gradient_strategy.py*
   - [x] `enforce_run_distance`: Cap maximum distance to not overshoot MAX_RUNNING_DISTANCE after `enforce_clearance`.
   - [x] `enforce_clearance`: Prevent players from running out of bounds or into each other. (might tune for passing)
   - [x] `clamp_to_pitch`: clip to pitch interor.
-  - [ ] `ball_carrier_action`: Specific logic for the player who currently has the ball (e.g., passing vs. shooting).
+  - [x] `ball_carrier_action`: Specific logic for the player who currently has the ball (e.g., passing vs. shooting).
 
 - [ ] **Sun, Apr 5: Step 12 · Assemble gradient_strategy** *(integrate into foosball.py)*
   - [ ] Compose all previous steps into the final engine.

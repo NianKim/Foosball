@@ -224,7 +224,6 @@ def clamp_to_pitch(pos: np.ndarray, margin: float = 0.05) -> np.ndarray:
 # POST: target 2D point for the carrier's move (always 3–20m from ball_coords).
 #       Priority: (1) shoot if goal in range, (2) pass to most forward teammate,
 #       (3) pass any direction in range, (4) emergency clearance to empty space.
-#       No dribbling — carrier must move the ball every turn.
 def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
                         own_team: int) -> np.ndarray:
     sign   = 1.0 if own_team == 0 else -1.0
