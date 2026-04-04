@@ -189,3 +189,22 @@ def enforce_run_distance(pos_from: np.ndarray, pos_to: np.ndarray,
     d_clamped = np.clip(d, min_d, max_d)
     return pos_from + (diff / d) * d_clamped
 
+# PRE:  pos is a 2D point. ball_coords is the current ball position.
+#       min_dist is MIN_OWN_BALL_DISTANCE or MIN_OPP_BALL_DISTANCE.
+#       Only call this when ball.team is not None.
+# POST: if pos is within min_dist of the ball, pushes it to min_dist + small buffer
+#       along the same radial direction. Otherwise returns pos unchanged.
+def enforce_ball_clearance(pos: np.ndarray, ball_coords: np.ndarray,
+                           min_dist: float) -> np.ndarray:
+    diff = pos - ball_coords
+    d    = np.linalg.norm(diff)
+
+    if d >= min_dist:
+        return pos                           # already clear — nothing to do
+
+    if d < EPS:
+        diff = np.array([0.0, 1.0])          # directly on ball — push sideways
+        d    = 1.0
+
+    return ball_coords + (diff / d) * (min_dist + 0.05)
+
