@@ -241,6 +241,81 @@ def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
 
     return ball_coords + np.array([sign, 0.0]) * MAX_PASS
 
+#temp
+
+# ── Goalie constants ──────────────────────────────────────────────────────────
+GOALIE_X       = 35.0   # distance from own goal to hold position [m]
+GOALIE_X_RANGE = 10.0   # how far forward goalie ventures when ball is in opp half
+
+# PRE:  ball_coords is current ball position. own_team is 0 or 1.
+# POST: target 2D position for goalie — near own goal, tracking ball's y.
+#       Advances slightly when ball is in opponent's half.
+def goalie_target(ball_coords: np.ndarray, own_team: int) -> np.ndarray:
+    sign = 1.0 if own_team == 0 else -1.0
+
+    ball_in_own_half = (ball_coords[0] * sign) < 0
+    if ball_in_own_half:
+        target_x = -GOALIE_X * sign          # hold deep near own goal
+    else:
+        target_x = -(GOALIE_X - GOALIE_X_RANGE) * sign   # push up slightly
+
+    target_y = np.clip(ball_coords[1], -Pitch.Y_BOUND + 2.0, Pitch.Y_BOUND - 2.0)
+    return np.array([target_x, target_y])
+
+def easy_strategy_with_goalie(strat_input: StrategyInput) -> StrategyOutput:
+    # run easy_strategy normally first
+    result = easy_strategy(strat_input)
+    
+    own_team    = strat_input.team
+    own_coords  = strat_input.player_coords[own_team].copy()
+    ball        = strat_input.ball
+    ball_coords = ball.coords.copy()
+
+    # overwrite goalie position(s) with positional target
+    for goalie_i in [3, 4]:   # change to [4] for one goalie, [3, 4] for two
+        target    = goalie_target(ball_coords, own_team)
+        
+        # second goalie holds slightly further back
+        if goalie_i == 3:
+            sign     = 1.0 if own_team == 0 else -1.0
+            target   = target.copy()
+            target[0] = np.clip(target[0], 
+                                (-Pitch.X_BOUND + 5) * sign,
+                                (-Pitch.X_BOUND + 20) * sign)
+
+        candidate = enforce_run_distance(own_coords[goalie_i], target,
+                                         DistanceLimits.MIN_RUNNING_DISTANCE + 0.05,
+                                         DistanceLimits.MAX_RUNNING_DISTANCE - 0.05)
+        if ball.team is not None:
+            min_dist  = (DistanceLimits.MIN_OWN_BALL_DISTANCE
+                         if ball.team == own_team
+                         else DistanceLimits.MIN_OPP_BALL_DISTANCE)
+            candidate = enforce_ball_clearance(candidate, ball_coords, min_dist)
+        
+        result.coords[goalie_i] = clamp_to_pitch(candidate)
+
+    return result
+
+def gradient_strategy_with_goalie(strat_input: StrategyInput) -> StrategyOutput:
+    result      = gradient_strategy(strat_input)
+    own_team    = strat_input.team
+    own_coords  = strat_input.player_coords[own_team].copy()
+    ball        = strat_input.ball
+    ball_coords = ball.coords.copy()
+
+    goalie_i  = 4
+    target    = goalie_target(ball_coords, own_team)
+    candidate = enforce_run_distance(own_coords[goalie_i], target,
+                                     DistanceLimits.MIN_RUNNING_DISTANCE + 0.05,
+                                     DistanceLimits.MAX_RUNNING_DISTANCE - 0.05)
+    if ball.team is not None:
+        min_dist  = (DistanceLimits.MIN_OWN_BALL_DISTANCE
+                     if ball.team == own_team
+                     else DistanceLimits.MIN_OPP_BALL_DISTANCE)
+        candidate = enforce_ball_clearance(candidate, ball_coords, min_dist)
+    result.coords[goalie_i] = clamp_to_pitch(candidate)
+    return result
+
 
 # ── Strategy assembly ─────────────────────────────────────────────────────────
 
@@ -314,31 +389,31 @@ def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
     return StrategyOutput(new_coords, game_state)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     from foosball import SessionState, easy_strategy
 
-    strategies = [gradient_strategy, easy_strategy]
-    state  = SessionState(kickoff_team=0)
-    points = [0, 0]
+    combos = [
+        ("gradient vs easy",               gradient_strategy,             easy_strategy),
+        ("gradient vs easy+goalie",        gradient_strategy,             easy_strategy_with_goalie),
+        ("gradient+goalie vs easy",        gradient_strategy_with_goalie, easy_strategy),
+        ("gradient+goalie vs easy+goalie", gradient_strategy_with_goalie, easy_strategy_with_goalie),
+    ]
 
-    for turn in range(2000):
-        winner = state.perform_iteration(strategies, seed=turn)
-        if winner in (0, 1):
-            points[winner] += 1
-            print(f"Goal by team {winner} after {turn} turns | Score: {points[0]}-{points[1]}")
-            state = SessionState(kickoff_team=1 - winner)
+    for name, s0, s1 in combos:
+        state  = SessionState(kickoff_team=0)
+        points = [0, 0]
+        for turn in range(2000):
+            winner = state.perform_iteration([s0, s1], seed=turn)
+            if winner in (0, 1):
+                points[winner] += 1
+                state = SessionState(kickoff_team=1 - winner)
+        print(f"{name}: {points[0]}-{points[1]}")
 
-    print(f"\nFinal: Team0={points[0]} Team1={points[1]}")
-
-    # ── Animation ─────────────────────────────────────────────────────────────
+    # ── Animation — uses last combo's strategies ───────────────────────────
+    s0, s1 = gradient_strategy_with_goalie, easy_strategy_with_goalie
     frames = []
     points = [0, 0]
     state  = SessionState(kickoff_team=0)
-
-    print(f"\nBall at start: pos={state.ball.coords}, team={state.ball.team}")
-    print(f"Team 0: {state.player_coords[0]}")
-    print(f"Team 1: {state.player_coords[1]}")
 
     for turn in range(1000):
         frames.append((
@@ -347,7 +422,7 @@ if __name__ == '__main__':
             state.ball.coords.copy(),
             f"Turn {turn}  |  Blue {points[0]} – {points[1]} Red"
         ))
-        winner = state.perform_iteration(strategies, seed=turn)
+        winner = state.perform_iteration([s0, s1], seed=turn)
         if winner in (0, 1):
             points[winner] += 1
             frames.append((
@@ -366,8 +441,8 @@ if __name__ == '__main__':
     ax.axvline(-50, color='white', linewidth=1.5)
     ax.axvline( 50, color='white', linewidth=1.5)
 
-    scat0  = ax.scatter([], [], s=150, color='blue',  zorder=3, label='Team 0 (gradient)')
-    scat1  = ax.scatter([], [], s=150, color='red',   zorder=3, label='Team 1 (easy)')
+    scat0  = ax.scatter([], [], s=150, color='blue',  zorder=3, label='Team 0 (gradient+goalie)')
+    scat1  = ax.scatter([], [], s=150, color='red',   zorder=3, label='Team 1 (easy+goalie)')
     ball_s = ax.scatter([], [], s=200, color='white', zorder=4,
                         edgecolors='black', linewidths=2)
     title  = ax.set_title('')
