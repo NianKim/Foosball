@@ -61,13 +61,13 @@ TODOS:
   - [x] `clamp_to_pitch`: clip to pitch interor.
   - [x] `ball_carrier_action`: Specific logic for the player who currently has the ball (e.g., passing vs. shooting).
 
-- [ ] **Sun, Apr 5: Step 12 · Assemble gradient_strategy** *(integrate into foosball.py)*
-  - [ ] Compose all previous steps into the final engine.
-  - [ ] First full game run!
-  - [ ] Test our AI against the baseline `easy_strategy`.
+- [x] **Sun, Apr 5: Step 12 · Assemble gradient_strategy** *(integrate into foosball.py)*
+  - [x] Compose all previous steps into the final engine.
+  - [x] First full game run!
+  - [x] Test our AI against the baseline `easy_strategy`.
 
 - [ ] **Mon, Apr 6: Step 13 · Visualize and tune** *(tune)*
-  - [ ] Build `visualize_field` using matplotlib `quiver` plots to actually *see* the potential fields.
+  - [x] Build `visualize_field` using matplotlib `quiver` plots to actually *see* the potential fields.
   - [ ] Tune `SIGMA` and `AMP` constants so movement feels natural (no jittering at walls).
 
 - [ ] **Tue, Apr 7: Steps 14-15 · Benchmark and momentum** *(polish)*
