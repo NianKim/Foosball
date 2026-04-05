@@ -1,21 +1,24 @@
 import numpy as np
-from foosball import Ball, Pitch, DistanceLimits
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from foosball import Ball, Pitch, DistanceLimits, StrategyInput, StrategyOutput
 
-EPS = 1e-8  # numerical guard for division and distance checks
+EPS = 1e-8
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
-SIGMA_PLAYER     = 8.0    # spatial spread of player potentials [m]
-SIGMA_BALL       = 20.0   # spatial spread of ball potential [m]
-AMP_OWN_REPEL    = 2.0    # own-player repulsion (spread out)
-AMP_OPP_ATTACK   = 3.0    # opponent repulsion in attack (avoid blockers)
-AMP_OPP_NEUTRAL  = 2.5    # opponent repulsion in neutral
-AMP_BALL_ATTACK  = -3.0   # ball attraction in attack (weak — carrier has it)
-AMP_BALL_NEUTRAL = -20.0  # ball attraction in neutral (strong — go get it)
-SOMBRERO_B       = 0.22   # ring distance ≈ π/(2·0.22) ≈ 7m
-SOMBRERO_AMP     = 1.5    # sombrero strength — tune relative to ball attraction
-SLOPE_WEIGHT     = 0.3    # strength of global forward/backward tilt
-BOUNDARY_A       = 80.0   # wall repulsion amplitude
-BOUNDARY_W       = 3.0    # wall decay width [m] — kicks in within ~3m of edge
+SIGMA_PLAYER     = 8.0
+SIGMA_BALL       = 10.0
+AMP_OWN_REPEL    = 0.8
+AMP_OPP_ATTACK   = 3.0
+AMP_OPP_NEUTRAL  = 0.8
+AMP_BALL_ATTACK  = -3.0
+AMP_BALL_NEUTRAL = -50.0
+AMP_BALL_DEFENSE = -25.0
+SOMBRERO_B       = 0.22
+SOMBRERO_AMP     = 1.5
+SLOPE_WEIGHT     = 0.05
+BOUNDARY_A       = 80.0
+BOUNDARY_W       = 3.0
 
 
 # ── Mathematical functions ────────────────────────────────────────────────────
@@ -31,9 +34,8 @@ def determine_game_state(ball, own_team: int) -> str:
         return 'defense'
 
 
-# PRE:  pos and center are 2D points on the pitch. sigma > 0.
-# POST: gradient of a bell-shaped potential centered at center.
-#       amplitude > 0 → repulsive hill, amplitude < 0 → attractive well.
+# PRE:  pos and center are 2D points. sigma > 0.
+# POST: gradient of a bell-shaped potential. amplitude > 0 repels, < 0 attracts.
 def gauss_grad(pos: np.ndarray, center: np.ndarray,
                amplitude: float, sigma: float) -> np.ndarray:
     diff = pos - center
@@ -43,10 +45,8 @@ def gauss_grad(pos: np.ndarray, center: np.ndarray,
 
 
 # PRE:  pos and center are 2D points. b > 0.
-#       First attractive ring sits at r ≈ π/(2·b).
-#       To target a specific ring distance d: set b = π / (2·d).
-# POST: gradient of a ripple-shaped potential V(r) = A·sin(b·r)/r.
-#       Singularity at r=0 is mathematically removable — guarded by early return.
+#       First attractive ring at r ≈ π/(2·b). For d metres: b = π/(2·d).
+# POST: gradient of ripple potential V(r) = A·sin(b·r)/r.
 def sombrero_grad(pos: np.ndarray, center: np.ndarray,
                   amplitude: float, b: float) -> np.ndarray:
     diff  = pos - center
@@ -58,11 +58,8 @@ def sombrero_grad(pos: np.ndarray, center: np.ndarray,
     return dV_dr * r_hat
 
 
-# PRE:  own_team is 0 or 1. game_state is 'attack', 'neutral', or 'defense'.
-# POST: constant gradient tilting the whole field in one direction.
-#       neutral  → no tilt.
-#       attack   → pulls players toward the enemy goal.
-#       defense  → pulls players back toward their own goal.
+# PRE:  own_team in {0,1}. game_state in {'attack','neutral','defense'}.
+# POST: constant gradient. neutral→zero. attack→toward enemy goal. defense→own goal.
 def slope_grad(own_team: int, game_state: str) -> np.ndarray:
     if game_state == 'neutral':
         return np.zeros(2)
@@ -72,48 +69,42 @@ def slope_grad(own_team: int, game_state: str) -> np.ndarray:
     return np.array([sign * SLOPE_WEIGHT, 0.0])
 
 
-# PRE:  pos is a 2D point. Works outside the pitch too — walls get steeper.
-# POST: gradient pointing toward the nearest wall.
-#       Descent direction (negative of this) pushes players away from edges.
+# PRE:  pos is a 2D point.
+# POST: gradient pointing toward nearest wall. Descent pushes away from edges.
 def boundary_grad(pos: np.ndarray) -> np.ndarray:
     x, y = pos[0], pos[1]
     a_w  = BOUNDARY_A / BOUNDARY_W
-
     d_left   = x + Pitch.X_BOUND
     d_right  = Pitch.X_BOUND - x
     d_bottom = y + Pitch.Y_BOUND
     d_top    = Pitch.Y_BOUND - y
-
     gx = -a_w * np.exp(-d_left   / BOUNDARY_W) \
          +a_w * np.exp(-d_right  / BOUNDARY_W)
     gy = -a_w * np.exp(-d_bottom / BOUNDARY_W) \
          +a_w * np.exp(-d_top    / BOUNDARY_W)
-
     return np.array([gx, gy])
 
 
 # ── Field composition ─────────────────────────────────────────────────────────
 
-# PRE:  own_coords must be the committed-moves array (new_coords), not the
-#       original snapshot — later players see earlier players' decided positions.
-#       game_state is 'attack', 'neutral', or 'defense'.
-# POST: summed gradient at pos from all field sources.
-#       Caller must negate to get the descent (movement) direction.
-#       See strategy table in README.md
+# PRE:  own_coords is the committed-moves array (new_coords), not original snapshot.
+# POST: summed gradient at pos. Caller negates to get descent direction.
 def total_gradient(
-    pos:         np.ndarray,  # 2D position of the player being computed
-    own_coords:  np.ndarray,  # 5 x 2D positions — committed moves so far
-    opp_coords:  np.ndarray,  # 5 x 2D positions — opponents
-    ball_coords: np.ndarray,  # 2D position of the ball
+    pos:         np.ndarray,
+    own_coords:  np.ndarray,
+    opp_coords:  np.ndarray,
+    ball_coords: np.ndarray,
     game_state:  str,
     own_team:    int,
-    player_idx:  int          # this player's index — skipped in own-player loop
+    player_idx:  int
 ) -> np.ndarray:
 
     grad = np.zeros(2)
 
+    # global slope
     grad += slope_grad(own_team, game_state)
 
+    # own players — repel or sombrero depending on state
     for j, coord in enumerate(own_coords):
         if j == player_idx:
             continue
@@ -122,94 +113,83 @@ def total_gradient(
         else:
             grad += gauss_grad(pos, coord, AMP_OWN_REPEL, SIGMA_PLAYER)
 
+    # opponent players — each opponent's position, not the ball
     for coord in opp_coords:
         if game_state == 'defense':
             grad += sombrero_grad(pos, coord, SOMBRERO_AMP, SOMBRERO_B)
         elif game_state == 'neutral':
             grad += gauss_grad(pos, coord, AMP_OPP_NEUTRAL, SIGMA_PLAYER)
-        else:
+        else:  # attack
             grad += gauss_grad(pos, coord, AMP_OPP_ATTACK, SIGMA_PLAYER)
 
+    # ball attraction — once, outside all loops
     if game_state == 'neutral':
         grad += gauss_grad(pos, ball_coords, AMP_BALL_NEUTRAL, SIGMA_BALL)
     elif game_state == 'attack':
         grad += gauss_grad(pos, ball_coords, AMP_BALL_ATTACK, SIGMA_BALL)
+    elif game_state == 'defense':
+        grad += gauss_grad(pos, ball_coords, AMP_BALL_DEFENSE, SIGMA_BALL)
 
+    # boundary walls
     grad += boundary_grad(pos)
 
     return grad
 
 
-# PRE:  own_coords holds 5 x 2D positions. ball_coords is a 2D point.
-# POST: the 5 player indices sorted by distance to ball, closest first.
+# PRE:  own_coords holds 5 x 2D positions. carrier_idx = ball.player or -1.
+# POST: player indices sorted by distance to ball, carrier pinned last.
 def sort_players_by_distance(own_coords: np.ndarray,
-                             ball_coords: np.ndarray) -> np.ndarray:
-    diffs     = own_coords - ball_coords      # one difference vector per player
-    distances = np.linalg.norm(diffs, axis=1) # one scalar distance per player
-    return np.argsort(distances)
+                             ball_coords: np.ndarray,
+                             carrier_idx: int = -1) -> np.ndarray:
+    diffs     = own_coords - ball_coords
+    distances = np.linalg.norm(diffs, axis=1)
+    order     = np.argsort(distances)
+    if carrier_idx >= 0:
+        order = np.append(order[order != carrier_idx], carrier_idx)
+    return order
 
 
-# PRE:  pos and ball_coords are 2D points. grad is the raw gradient at pos.
-# POST: candidate position one full step (MAX_RUNNING_DISTANCE) away from pos
-#       in the gradient descent direction.
-#       If gradient is flat, falls back toward the ball instead.
-#       No constraint checking — that is steps 9 and 10.
+# PRE:  pos and ball_coords are 2D points. grad is raw gradient at pos.
+# POST: candidate position one full step in descent direction. No constraints.
 def propose_move(pos:         np.ndarray,
                  grad:        np.ndarray,
                  ball_coords: np.ndarray) -> np.ndarray:
     grad_norm = np.linalg.norm(grad)
-
     if grad_norm < EPS:
         direction = ball_coords - pos
         dist      = np.linalg.norm(direction)
-        if dist < EPS:
-            direction = np.array([1.0, 0.0])
-        else:
-            direction = direction / dist
+        direction = np.array([1.0, 0.0]) if dist < EPS else direction / dist
     else:
         direction = -grad / grad_norm
-
-    step = DistanceLimits.MAX_RUNNING_DISTANCE - 1e-5
-    return pos + direction * step
+    return pos + direction * (DistanceLimits.MAX_RUNNING_DISTANCE - 1e-5)
 
 
-# PRE:  pos_from and pos_to are 2D points. min_d >= 0, max_d > min_d.
-# POST: a point at the same direction from pos_from as pos_to,
-#       but with distance clamped to [min_d, max_d].
-#       If pos_to == pos_from (zero direction), nudges along +x as fallback.
+# PRE:  min_d >= 0, max_d > min_d.
+# POST: same direction from pos_from, distance clamped to [min_d, max_d].
 def enforce_run_distance(pos_from: np.ndarray, pos_to: np.ndarray,
                          min_d: float, max_d: float) -> np.ndarray:
     diff = pos_to - pos_from
     d    = np.linalg.norm(diff)
-
     if d < EPS:
-        diff = np.array([1.0, 0.0])  # no direction info — nudge along +x
-        d    = 1.0
+        diff, d = np.array([1.0, 0.0]), 1.0
+    return pos_from + (diff / d) * np.clip(d, min_d, max_d)
 
-    d_clamped = np.clip(d, min_d, max_d)
-    return pos_from + (diff / d) * d_clamped
 
-# PRE:  pos is a 2D point. ball_coords is the current ball position.
-#       min_dist is MIN_OWN_BALL_DISTANCE or MIN_OPP_BALL_DISTANCE.
-#       Only call this when ball.team is not None.
-# POST: if pos is within min_dist of the ball, pushes it to min_dist + small buffer
-#       along the same radial direction. Otherwise returns pos unchanged.
+# PRE:  Only call when ball.team is not None.
+# POST: pushes pos to min_dist + buffer if too close to ball.
 def enforce_ball_clearance(pos: np.ndarray, ball_coords: np.ndarray,
                            min_dist: float) -> np.ndarray:
     diff = pos - ball_coords
     d    = np.linalg.norm(diff)
-
     if d >= min_dist:
-        return pos                           # already clear — nothing to do
-
+        return pos
     if d < EPS:
-        diff = np.array([0.0, 1.0])          # directly on ball — push sideways
-        d    = 1.0
-
+        diff, d = np.array([0.0, 1.0]), 1.0
     return ball_coords + (diff / d) * (min_dist + 0.05)
 
- # PRE:  pos is a 2D point, possibly outside pitch bounds.
-# POST: pos moved to pitch interior with a small margin from the edge.
+
+# PRE:  pos is a 2D point, possibly outside pitch.
+# POST: clipped to pitch interior with 0.05m margin.
 def clamp_to_pitch(pos: np.ndarray, margin: float = 0.05) -> np.ndarray:
     return np.clip(pos,
                    [-Pitch.X_BOUND + margin, -Pitch.Y_BOUND + margin],
@@ -217,42 +197,34 @@ def clamp_to_pitch(pos: np.ndarray, margin: float = 0.05) -> np.ndarray:
 
 
 # ── Ball carrier ──────────────────────────────────────────────────────────────
- 
-# PRE:  ball_coords is the carrier's current 2D position.
-#       own_coords should be new_coords (committed future positions of teammates).
-#       own_team is 0 or 1.
-# POST: target 2D point for the carrier's move (always 3–20m from ball_coords).
-#       Priority: (1) shoot if goal in range, (2) pass to most forward teammate,
-#       (3) pass any direction in range, (4) emergency clearance to empty space.
+
+# PRE:  own_coords should be new_coords (committed future positions of teammates).
+# POST: target 2D point 3–20m from ball_coords.
+#       Priority: shoot > pass forward > emergency clearance.
 def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
                         own_team: int) -> np.ndarray:
     sign   = 1.0 if own_team == 0 else -1.0
     goal_x = Pitch.X_BOUND * sign
- 
-    MIN_PASS = DistanceLimits.MIN_SHOOTING_DISTANCE + 0.05   # 3.05m
-    MAX_PASS = DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05   # 19.95m
- 
-    # Priority 1: shoot if goal is within range
-    dist_to_goal = abs(goal_x - ball_coords[0])
-    if dist_to_goal <= MAX_PASS:
-        target  = np.array([goal_x, ball_coords[1]])
+    MIN_PASS = DistanceLimits.MIN_SHOOTING_DISTANCE + 0.05
+    MAX_PASS = DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05
+
+    # Priority 1: shoot
+    if abs(goal_x - ball_coords[0]) <= MAX_PASS:
+        target  = np.array([goal_x * 1.1, ball_coords[1]])
         to_goal = target - ball_coords
         return ball_coords + (to_goal / np.linalg.norm(to_goal)) * MAX_PASS
- 
-    # Collect all teammates in legal passing range, scored by forwardness
+
+    # Priority 2: pass to most forward teammate in range
     in_range = []
     for coord in own_coords:
         d = np.linalg.norm(coord - ball_coords)
         if MIN_PASS < d < MAX_PASS:
-            forwardness = coord[0] * sign
-            in_range.append((forwardness, coord))
- 
-    # Priority 2: pass to most forward teammate in range
+            in_range.append((coord[0] * sign, coord))
     if in_range:
         in_range.sort(key=lambda x: -x[0])
         return in_range[0][1].copy()
- 
-    # Priority 3: no teammate in range — emergency clearance to empty pitch space
+
+    # Priority 3: emergency clearance — y clamped, x free to cross boundary
     for direction in [
         np.array([ sign,  0.0]),
         np.array([ sign,  0.8]),
@@ -262,10 +234,184 @@ def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
         np.array([-sign,  0.0]),
     ]:
         direction = direction / np.linalg.norm(direction)
-        target    = clamp_to_pitch(ball_coords + direction * MAX_PASS)
+        target    = ball_coords + direction * MAX_PASS
+        target[1] = np.clip(target[1], -Pitch.Y_BOUND + 0.05, Pitch.Y_BOUND - 0.05)
         if np.linalg.norm(target - ball_coords) >= MIN_PASS:
             return target
- 
-    # Unreachable on a legal pitch position, but never crash
-    return clamp_to_pitch(ball_coords + np.array([sign, 0.0]) * MAX_PASS)
- 
+
+    return ball_coords + np.array([sign, 0.0]) * MAX_PASS
+
+
+# ── Strategy assembly ─────────────────────────────────────────────────────────
+
+# PRE:  valid StrategyInput. Must return within TIME_LIMIT = 0.01s.
+# POST: StrategyOutput with 5 committed positions, all constraints satisfied.
+def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
+
+    own_team    = strat_input.team
+    opp_team    = 1 - own_team
+    own_coords  = strat_input.player_coords[own_team].copy()
+    opp_coords  = strat_input.player_coords[opp_team].copy()
+    ball        = strat_input.ball
+    ball_coords = ball.coords.copy()
+
+    game_state  = determine_game_state(ball, own_team)
+    carrier_idx = ball.player if ball.team == own_team else -1
+    new_coords  = own_coords.copy()
+
+    # ── Kickoff: ball at centre, send diagonally to avoid team 1 at (25,0) ──
+    if (ball.team == own_team
+            and np.linalg.norm(ball_coords) < 1.0
+            and abs(own_coords[ball.player][0]) < 1.0):
+        sign        = 1.0 if own_team == 0 else -1.0
+        kickoff_dir = np.array([sign * 0.6, 1.0])
+        kickoff_dir = kickoff_dir / np.linalg.norm(kickoff_dir)
+        target      = ball_coords + kickoff_dir * (DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05)
+        target[1]   = np.clip(target[1], -Pitch.Y_BOUND + 0.05, Pitch.Y_BOUND - 0.05)
+        new_coords[ball.player] = target
+        # move other players toward the kickoff target so they're ready next turn
+        order = sort_players_by_distance(own_coords, ball_coords, carrier_idx)
+        for i in order:
+            if i == carrier_idx:
+                continue
+            pos       = own_coords[i]
+            grad      = total_gradient(pos, new_coords, opp_coords,
+                                       target, 'neutral', own_team, i)
+            candidate = propose_move(pos, grad, target)
+            candidate = enforce_run_distance(pos, candidate,
+                                             DistanceLimits.MIN_RUNNING_DISTANCE + 0.05,
+                                             DistanceLimits.MAX_RUNNING_DISTANCE - 0.05)
+            new_coords[i] = clamp_to_pitch(candidate)
+        return StrategyOutput(new_coords, 'attack')  # early return — skip main loop
+
+    # ── Main loop ─────────────────────────────────────────────────────────────
+    order = sort_players_by_distance(own_coords, ball_coords, carrier_idx)
+
+    for i in order:
+
+        # ball carrier: shoot or pass, no gradient
+        if ball.team == own_team and i == carrier_idx:
+            new_coords[i] = ball_carrier_action(ball_coords, new_coords, own_team)
+            continue
+
+        # everyone else: gradient descent + constraint chain
+        pos       = own_coords[i]
+        grad      = total_gradient(pos, new_coords, opp_coords,
+                                   ball_coords, game_state, own_team, i)
+        candidate = propose_move(pos, grad, ball_coords)
+
+        if ball.team is not None:
+            min_dist  = (DistanceLimits.MIN_OWN_BALL_DISTANCE
+                         if ball.team == own_team
+                         else DistanceLimits.MIN_OPP_BALL_DISTANCE)
+            candidate = enforce_ball_clearance(candidate, ball_coords, min_dist)
+
+        candidate     = enforce_run_distance(pos, candidate,
+                                             DistanceLimits.MIN_RUNNING_DISTANCE + 0.05,
+                                             DistanceLimits.MAX_RUNNING_DISTANCE - 0.05)
+        new_coords[i] = clamp_to_pitch(candidate)
+
+    return StrategyOutput(new_coords, game_state)
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+if __name__ == '__main__':
+    from foosball import SessionState, easy_strategy
+
+    strategies = [gradient_strategy, easy_strategy]
+    state  = SessionState(kickoff_team=0)
+    points = [0, 0]
+
+    for turn in range(2000):
+        winner = state.perform_iteration(strategies, seed=turn)
+        if winner in (0, 1):
+            points[winner] += 1
+            print(f"Goal by team {winner} after {turn} turns | Score: {points[0]}-{points[1]}")
+            state = SessionState(kickoff_team=1 - winner)
+
+    print(f"\nFinal: Team0={points[0]} Team1={points[1]}")
+
+    # ── Animation ─────────────────────────────────────────────────────────────
+    frames = []
+    points = [0, 0]
+    state  = SessionState(kickoff_team=0)
+
+    print(f"\nBall at start: pos={state.ball.coords}, team={state.ball.team}")
+    print(f"Team 0: {state.player_coords[0]}")
+    print(f"Team 1: {state.player_coords[1]}")
+
+    for turn in range(1000):
+        frames.append((
+            state.player_coords[0].copy(),
+            state.player_coords[1].copy(),
+            state.ball.coords.copy(),
+            f"Turn {turn}  |  Blue {points[0]} – {points[1]} Red"
+        ))
+        winner = state.perform_iteration(strategies, seed=turn)
+        if winner in (0, 1):
+            points[winner] += 1
+            frames.append((
+                state.player_coords[0].copy(),
+                state.player_coords[1].copy(),
+                state.ball.coords.copy(),
+                f"GOAL — {'Blue' if winner == 0 else 'Red'} scores!  |  Blue {points[0]} – {points[1]} Red"
+            ))
+            state = SessionState(kickoff_team=1 - winner)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.set_xlim(-50, 50)
+    ax.set_ylim(-25, 25)
+    ax.set_facecolor('#4a7c3f')
+    ax.axvline(0,   color='white', linewidth=0.8, linestyle='--')
+    ax.axvline(-50, color='white', linewidth=1.5)
+    ax.axvline( 50, color='white', linewidth=1.5)
+
+    scat0  = ax.scatter([], [], s=150, color='blue',  zorder=3, label='Team 0 (gradient)')
+    scat1  = ax.scatter([], [], s=150, color='red',   zorder=3, label='Team 1 (easy)')
+    ball_s = ax.scatter([], [], s=200, color='white', zorder=4,
+                        edgecolors='black', linewidths=2)
+    title  = ax.set_title('')
+    ax.legend(loc='upper right')
+    plt.tight_layout()
+
+    ctrl = {'paused': False, 'frame': 0}
+
+    def update(f):
+        ctrl['frame'] = f
+        coords0, coords1, ball_coords, label = frames[f]
+        scat0.set_offsets(coords0)
+        scat1.set_offsets(coords1)
+        ball_s.set_offsets([ball_coords])
+        title.set_text(label)
+        return scat0, scat1, ball_s, title
+
+    ani = animation.FuncAnimation(fig, update, frames=len(frames),
+                                  interval=200, blit=True, repeat=False)
+
+    from matplotlib.widgets import Button
+    ax_pause  = fig.add_axes([0.4,  0.01, 0.1, 0.05])
+    ax_skip   = fig.add_axes([0.52, 0.01, 0.2, 0.05])
+    btn_pause = Button(ax_pause, 'Pause')
+    btn_skip  = Button(ax_skip,  'Skip 50 frames')
+
+    def on_pause(event):
+        if ctrl['paused']:
+            ani.resume()
+            btn_pause.label.set_text('Pause')
+        else:
+            ani.pause()
+            btn_pause.label.set_text('Resume')
+        ctrl['paused'] = not ctrl['paused']
+        fig.canvas.draw_idle()
+
+    def on_skip(event):
+        target = min(ctrl['frame'] + 50, len(frames) - 1)
+        ani.pause()
+        ctrl['paused'] = True
+        btn_pause.label.set_text('Resume')
+        update(target)
+        fig.canvas.draw_idle()
+
+    btn_pause.on_clicked(on_pause)
+    btn_skip.on_clicked(on_skip)
+    plt.show()
