@@ -390,6 +390,27 @@ def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
 
 
 if __name__ == '__main__':
+
+
+    import time
+
+    def benchmark(strategy, n=200):
+        state   = SessionState(kickoff_team=0)
+        times   = []
+        for turn in range(n):
+            inp   = state.get_strategy_input(0, state.strategy_states[0])
+            start = time.perf_counter()
+            strategy(inp)
+            times.append(time.perf_counter() - start)
+            state.perform_iteration([strategy, easy_strategy], seed=turn)
+        times = np.array(times)
+        print(f"mean: {times.mean()*1000:.3f}ms  "
+            f"max: {times.max()*1000:.3f}ms  "
+            f"limit: 10.000ms  "
+            f"{'OK' if times.max() < 0.01 else 'OVER LIMIT'}")
+    benchmark(gradient_strategy)
+
+
     from foosball import SessionState, easy_strategy
 
     combos = [
