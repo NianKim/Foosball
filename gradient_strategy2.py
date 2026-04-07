@@ -7,23 +7,22 @@ from foosball import Ball, Pitch, DistanceLimits, StrategyInput, StrategyOutput
 EPS = 1e-8  # numerical guard for division and distance checks
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
-SIGMA_PLAYER     = 7.0    # spatial spread of player potentials [m]
-SIGMA_BALL       = 12.0   # spatial spread of ball potential [m]
-AMP_OWN_REPEL    = 2.0    # own-player repulsion (spread out)
+SIGMA_PLAYER     = 8.0    # spatial spread of player potentials [m]
+SIGMA_BALL       = 14.0   # spatial spread of ball potential [m]
+AMP_OWN_REPEL    = 2.1    # own-player repulsion (spread out)
 AMP_OPP_ATTACK   = 3.5    # opponent repulsion in attack (avoid blockers)
 AMP_OPP_NEUTRAL  = 1.8    # opponent repulsion in neutral
 AMP_BALL_ATTACK  = -5.0   # ball attraction in attack (weak — carrier has it)
 AMP_BALL_NEUTRAL = -50.0  # ball attraction in neutral (strong — go get it)
 AMP_BALL_DEFENSE = -40.0  # ball attraction in defense (chase the carrier)
-SOMBRERO_B       = 0.3    # first attractive ring at r ≈ π/(2·0.22) ≈ 7m
+SOMBRERO_B       = 0.2    # first attractive ring at r ≈ π/(2·0.22) ≈ 7m
 SOMBRERO_AMP     = 4.0    # sombrero strength — shapes passing lanes in attack
-SLOPE_WEIGHT     = 0.6   # strength of global forward/backward tilt
+SLOPE_WEIGHT     = 0.6    # strength of global forward/backward tilt
 BOUNDARY_A       = 50.0   # wall repulsion amplitude
-BOUNDARY_W       = 3.0    # wall decay width [m] — kicks in within ~3m of edge
-GOALIE_X         = 35.0   # distance from own goal line to hold position [m]
-GOALIE_X_RANGE   = 15.0   # how far forward goalie ventures when ball is in opp half
-LAT_PASS_PENALTY = 0.3    #inside ball_carrier
-TARGET_CONST     = 1.1    #inside ball_carrier
+BOUNDARY_W       = 2.3    # wall decay width [m] — kicks in within ~3m of edge
+
+LAT_PASS_PENALTY = 0.45    #inside ball_carrier
+TARGET_CONST     = 1.2    #inside ball_carrier
 
 # ── Mathematical functions ────────────────────────────────────────────────────
 
@@ -126,12 +125,7 @@ def total_gradient(
             if j == player_idx:
                 continue
             if game_state == 'attack':
-                # player 0 is the striker — ignores teammate sombreros entirely
-                # so they sprint forward independently without being pulled into formation
-                if player_idx == 0:
-                    pass    # striker gets no teammate interaction in attack
-                else:
-                    grad += sombrero_grad(pos, coord, SOMBRERO_AMP, SOMBRERO_B)
+                grad += sombrero_grad(pos, coord, SOMBRERO_AMP, SOMBRERO_B)
             else:
                 grad += gauss_grad(pos, coord, AMP_OWN_REPEL, SIGMA_PLAYER)
 
@@ -376,59 +370,6 @@ def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
 
     return StrategyOutput(new_coords, game_state)
 
-
-# ── Strategy wrappers (for comparison testing) ────────────────────────────────
-
-# PRE:  valid StrategyInput.
-# POST: gradient_strategy output with player 4 overridden to hold near own goal.
-def gradient_strategy_with_goalie(strat_input: StrategyInput) -> StrategyOutput:
-    result      = gradient_strategy(strat_input)
-    own_team    = strat_input.team
-    own_coords  = strat_input.player_coords[own_team].copy()
-    ball        = strat_input.ball
-    ball_coords = ball.coords.copy()
-
-    goalie_i  = 4
-    target    = goalie_target(ball_coords, own_team)
-    candidate = enforce_run_distance(own_coords[goalie_i], target,
-                                     DistanceLimits.MIN_RUNNING_DISTANCE + 0.05,
-                                     DistanceLimits.MAX_RUNNING_DISTANCE - 0.05)
-    if ball.team is not None:
-        min_dist  = (DistanceLimits.MIN_OWN_BALL_DISTANCE
-                     if ball.team == own_team
-                     else DistanceLimits.MIN_OPP_BALL_DISTANCE)
-        candidate = enforce_ball_clearance(candidate, ball_coords, min_dist)
-    result.coords[goalie_i] = clamp_to_pitch(candidate)
-    return result
-
-
-# PRE:  valid StrategyInput.
-# POST: easy_strategy output with players 3 and 4 overridden as goalies.
-def easy_strategy_with_goalie(strat_input: StrategyInput) -> StrategyOutput:
-    result      = easy_strategy(strat_input)
-    own_team    = strat_input.team
-    own_coords  = strat_input.player_coords[own_team].copy()
-    ball        = strat_input.ball
-    ball_coords = ball.coords.copy()
-
-    for goalie_i in [3, 4]:
-        target = goalie_target(ball_coords, own_team)
-        if goalie_i == 3:
-            sign      = 1.0 if own_team == 0 else -1.0
-            target    = target.copy()
-            target[0] = np.clip(target[0],
-                                (-Pitch.X_BOUND + 5)  * sign,
-                                (-Pitch.X_BOUND + 20) * sign)
-        candidate = enforce_run_distance(own_coords[goalie_i], target,
-                                         DistanceLimits.MIN_RUNNING_DISTANCE + 0.05,
-                                         DistanceLimits.MAX_RUNNING_DISTANCE - 0.05)
-        if ball.team is not None:
-            min_dist  = (DistanceLimits.MIN_OWN_BALL_DISTANCE
-                         if ball.team == own_team
-                         else DistanceLimits.MIN_OPP_BALL_DISTANCE)
-            candidate = enforce_ball_clearance(candidate, ball_coords, min_dist)
-        result.coords[goalie_i] = clamp_to_pitch(candidate)
-    return result
 
 def benchmark(strategy, n=200):
     state   = SessionState(kickoff_team=0)
