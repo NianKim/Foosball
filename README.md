@@ -65,6 +65,8 @@ Three game states switch which potential functions are active:
 | Passing always lateral | ↑ LAT_PASS_PENALTY |
 | Own players spread too far apart | ↓ AMP_OWN_REPEL |
 
+| Overall parameter performance | implemented optimizer against multiple benchmark strategies |
+
 ---
 
 ## Files
@@ -80,8 +82,9 @@ Three game states switch which potential functions are active:
 
 | Matchup | Score | Win rate |
 |---|---|---|
-| gradient vs easy_strategy | 125-10 (2000 turns) | 93% |
-| gradient vs easy+2 goalies | 117–15 | 89% |
+| gradient vs easy_strategy | 128-7 (2000 turns) | 94.9% | possession: 61.8% |
+| gradient vs easy+2 goalies | 155–9 | 94.5% | possession: 57.4% |
+| gradient vs gradient_goalie | 141-0 | 100.0% | possession: 57.1% |
 
 Timing: mean 0.23ms / max 0.38ms — well within the 10ms limit.
 
@@ -90,5 +93,5 @@ Timing: mean 0.23ms / max 0.38ms — well within the 10ms limit.
 ## Collaborators
 
 - @NianKim      (creator)
-- @MFQX         (helped flesh out the idea mathematically)
+- @MFQX         (contributor)
 - Marius Dragus (provided insight in to solving the problem)
