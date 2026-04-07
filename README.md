@@ -3,7 +3,7 @@
 This repository contains the autonomous agent logic for the Mathrix MindPhair 2026 Puzzle.
 Our strategy uses **Artificial Potential Fields (APF)** to navigate a 5-player team across a 100×50m pitch in a turn-based 5v5 game.
 
-**Result: 93% win rate vs. the provided easy_strategy baseline.**
+**Result: >95% win rate vs. the provided easy_strategy baseline and additional strategies.**
 
 ---
 
@@ -64,7 +64,6 @@ Three game states switch which potential functions are active:
 | Attack stays in own half | ↑ SLOPE_WEIGHT |
 | Passing always lateral | ↑ LAT_PASS_PENALTY |
 | Own players spread too far apart | ↓ AMP_OWN_REPEL |
-
 | Overall parameter performance | implemented optimizer against multiple benchmark strategies |
 
 ---
