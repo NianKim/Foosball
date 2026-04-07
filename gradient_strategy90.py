@@ -7,22 +7,21 @@ from foosball import Ball, Pitch, DistanceLimits, StrategyInput, StrategyOutput
 EPS = 1e-8  # numerical guard for division and distance checks
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
-SIGMA_PLAYER     = 14.39    # spatial spread of player potentials [m]
-SIGMA_BALL       = 15.8655   # spatial spread of ball potential [m]
-AMP_OWN_REPEL    = 4.8294    # own-player repulsion (spread out)
-AMP_OPP_ATTACK   = 2.8379    # opponent repulsion in attack (avoid blockers)
-AMP_OPP_NEUTRAL  = 2.8964    # opponent repulsion in neutral
-AMP_BALL_ATTACK  = -6.2818   # ball attraction in attack (weak — carrier has it)
-AMP_BALL_NEUTRAL = -37.8765  # ball attraction in neutral (strong — go get it)
-AMP_BALL_DEFENSE = -56.0393  # ball attraction in defense (chase the carrier)
-SOMBRERO_B       = 0.4663    # first attractive ring at r ≈ π/(2·0.22) ≈ 7m
-SOMBRERO_AMP     = 2.4364    # sombrero strength — shapes passing lanes in attack
-SLOPE_WEIGHT     = 0.6181    # strength of global forward/backward tilt
-BOUNDARY_A       = 48.5560   # wall repulsion amplitude
-BOUNDARY_W       = 2.7785    # wall decay width [m] — kicks in within ~3m of edge
+SIGMA_PLAYER     = 8.0    # spatial spread of player potentials [m]
+SIGMA_BALL       = 14.0   # spatial spread of ball potential [m]
+AMP_OWN_REPEL    = 2.1    # own-player repulsion (spread out)
+AMP_OPP_ATTACK   = 3.5    # opponent repulsion in attack (avoid blockers)
+AMP_OPP_NEUTRAL  = 1.8    # opponent repulsion in neutral
+AMP_BALL_ATTACK  = -5.0   # ball attraction in attack (weak — carrier has it)
+AMP_BALL_NEUTRAL = -50.0  # ball attraction in neutral (strong — go get it)
+AMP_BALL_DEFENSE = -40.0  # ball attraction in defense (chase the carrier)
+SOMBRERO_B       = 0.2    # first attractive ring at r ≈ π/(2·0.22) ≈ 7m
+SOMBRERO_AMP     = 4.0    # sombrero strength — shapes passing lanes in attack
+SLOPE_WEIGHT     = 0.6    # strength of global forward/backward tilt
+BOUNDARY_A       = 50.0   # wall repulsion amplitude
+BOUNDARY_W       = 2.3    # wall decay width [m] — kicks in within ~3m of edge
 
-LAT_PASS_PENALTY = 0.54    #inside ball_carrier
-
+LAT_PASS_PENALTY = 0.5    #inside ball_carrier (was 0.45 for 88 percent)
 
 # ── Mathematical functions ────────────────────────────────────────────────────
 

@@ -1,27 +1,42 @@
+# Python >= 3.10
+# Mathrix MindPhair 2026 — Foosball Strategy
+# by NianKim
+#
+# Approach: Artificial Potential Fields (APF)
+#   Every object on the pitch (players, ball, walls) generates a potential field.
+#   Players follow the negative gradient (steepest descent) of the superposed field.
+#   Three game states (attack / neutral / defense) switch which fields are active.
+
 import numpy as np
 import time
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from foosball import Ball, Pitch, DistanceLimits, StrategyInput, StrategyOutput
+
+# ── Paste foosball.py classes below when running standalone ───────────────────
+# When submitting, this file already contains the foosball.py content above.
+# Import line below is only needed for local testing:
+from foosball import (Ball, Pitch, DistanceLimits,
+                      StrategyInput, StrategyOutput,
+                      SessionState, easy_strategy)
 
 EPS = 1e-8  # numerical guard for division and distance checks
 
 # ── Tunable constants ─────────────────────────────────────────────────────────
-SIGMA_PLAYER     = 14.39    # spatial spread of player potentials [m]
-SIGMA_BALL       = 15.8655   # spatial spread of ball potential [m]
-AMP_OWN_REPEL    = 4.8294    # own-player repulsion (spread out)
-AMP_OPP_ATTACK   = 2.8379    # opponent repulsion in attack (avoid blockers)
-AMP_OPP_NEUTRAL  = 2.8964    # opponent repulsion in neutral
-AMP_BALL_ATTACK  = -6.2818   # ball attraction in attack (weak — carrier has it)
-AMP_BALL_NEUTRAL = -37.8765  # ball attraction in neutral (strong — go get it)
-AMP_BALL_DEFENSE = -56.0393  # ball attraction in defense (chase the carrier)
-SOMBRERO_B       = 0.4663    # first attractive ring at r ≈ π/(2·0.22) ≈ 7m
-SOMBRERO_AMP     = 2.4364    # sombrero strength — shapes passing lanes in attack
-SLOPE_WEIGHT     = 0.6181    # strength of global forward/backward tilt
-BOUNDARY_A       = 48.5560   # wall repulsion amplitude
-BOUNDARY_W       = 2.7785    # wall decay width [m] — kicks in within ~3m of edge
-
-LAT_PASS_PENALTY = 0.54    #inside ball_carrier
+# First set: hand-tuned, 91% win rate vs easy_strategy
+SIGMA_PLAYER     = 8.0    # spatial spread of player potentials [m]
+SIGMA_BALL       = 14.0   # spatial spread of ball potential [m]
+AMP_OWN_REPEL    = 2.1    # own-player repulsion (spread out)
+AMP_OPP_ATTACK   = 3.5    # opponent repulsion in attack (avoid blockers)
+AMP_OPP_NEUTRAL  = 1.8    # opponent repulsion in neutral
+AMP_BALL_ATTACK  = -5.0   # ball attraction in attack (weak — carrier has it)
+AMP_BALL_NEUTRAL = -50.0  # ball attraction in neutral (strong — go get it)
+AMP_BALL_DEFENSE = -40.0  # ball attraction in defense (chase the carrier)
+SOMBRERO_B       = 0.2    # first attractive ring at r ≈ π/(2b) ≈ 7.8m
+SOMBRERO_AMP     = 4.0    # sombrero strength — shapes passing lanes in attack
+SLOPE_WEIGHT     = 0.6    # strength of global forward/backward tilt
+BOUNDARY_A       = 50.0   # wall repulsion amplitude
+BOUNDARY_W       = 2.3    # wall decay width [m] — kicks in within ~3m of edge
+LAT_PASS_PENALTY = 0.5   # penalty per metre of lateral distance when choosing pass target
 
 
 # ── Mathematical functions ────────────────────────────────────────────────────
@@ -66,7 +81,7 @@ def sombrero_grad(pos: np.ndarray, center: np.ndarray,
 # PRE:  own_team is 0 or 1. game_state is 'attack', 'neutral', or 'defense'.
 # POST: constant gradient tilting the whole field in one direction.
 #       neutral → no tilt. attack → toward enemy goal. defense → toward own goal.
-#       Team 0 attacks +x, Team 1 attacks -x.
+#       Team 0 attacks +x (right boundary), Team 1 attacks -x (left boundary).
 def slope_grad(own_team: int, game_state: str) -> np.ndarray:
     if game_state == 'neutral':
         return np.zeros(2)
@@ -100,7 +115,6 @@ def boundary_grad(pos: np.ndarray) -> np.ndarray:
 #       game_state is 'attack', 'neutral', or 'defense'.
 # POST: summed gradient at pos from all field sources.
 #       Caller must negate to get the descent (movement) direction.
-#       See strategy table in README.md.
 #
 #       State   | Own players | Opponents  | Ball
 #       --------|-------------|------------|---------------------------
@@ -108,13 +122,13 @@ def boundary_grad(pos: np.ndarray) -> np.ndarray:
 #       neutral | gauss +     | gauss +    | gauss − (strong attraction)
 #       defense | gauss +     | sombrero   | gauss − (chase carrier)
 def total_gradient(
-    pos:         np.ndarray,
-    own_coords:  np.ndarray,
-    opp_coords:  np.ndarray,
-    ball_coords: np.ndarray,
+    pos:         np.ndarray,  # 2D position of the player being computed
+    own_coords:  np.ndarray,  # 5 x 2D — committed moves so far this turn
+    opp_coords:  np.ndarray,  # 5 x 2D — opponent positions
+    ball_coords: np.ndarray,  # 2D position of the ball
     game_state:  str,
     own_team:    int,
-    player_idx:  int
+    player_idx:  int          # skipped in own-player loop (no self-interaction)
 ) -> np.ndarray:
 
     grad = np.zeros(2)
@@ -122,12 +136,12 @@ def total_gradient(
     grad += slope_grad(own_team, game_state)
 
     for j, coord in enumerate(own_coords):
-            if j == player_idx:
-                continue
-            if game_state == 'attack':
-                grad += sombrero_grad(pos, coord, SOMBRERO_AMP, SOMBRERO_B)
-            else:
-                grad += gauss_grad(pos, coord, AMP_OWN_REPEL, SIGMA_PLAYER)
+        if j == player_idx:
+            continue
+        if game_state == 'attack':
+            grad += sombrero_grad(pos, coord, SOMBRERO_AMP, SOMBRERO_B)
+        else:
+            grad += gauss_grad(pos, coord, AMP_OWN_REPEL, SIGMA_PLAYER)
 
     for coord in opp_coords:
         if game_state == 'defense':
@@ -225,16 +239,16 @@ def clamp_to_pitch(pos: np.ndarray, margin: float = 0.05) -> np.ndarray:
 #       own_coords should be new_coords (committed future positions of teammates).
 #       own_team is 0 or 1.
 # POST: target 2D point for the carrier's move, always 3–20m from ball_coords.
-#       Priority: (1) shoot if goal in range, (2) pass to most forward teammate,
-#       (3) emergency clearance kick to open space.
+#       Priority: (1) shoot if goal in range, (2) pass to most forward non-own-goal
+#       teammate, (3) emergency clearance kick to open space.
 #       No dribbling — carrier must move the ball every turn.
 def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
                         own_team: int) -> np.ndarray:
-    sign     = 1.0 if own_team == 0 else -1.0
-    goal_x   = Pitch.X_BOUND * sign
+    sign       = 1.0 if own_team == 0 else -1.0
+    goal_x     = Pitch.X_BOUND * sign
     own_goal_x = -Pitch.X_BOUND * sign
-    MIN_PASS = DistanceLimits.MIN_SHOOTING_DISTANCE + 0.05
-    MAX_PASS = DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05
+    MIN_PASS   = DistanceLimits.MIN_SHOOTING_DISTANCE + 0.05
+    MAX_PASS   = DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05
 
     # Priority 1: shoot — aim past the line to guarantee crossing
     if abs(goal_x - ball_coords[0]) <= MAX_PASS:
@@ -249,7 +263,7 @@ def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
         d = np.linalg.norm(coord - ball_coords)
         if MIN_PASS < d < MAX_PASS:
             if (coord[0] - own_goal_x) * sign < 0:
-                continue                       # would land behind own goal — skip
+                continue                        # would land behind own goal — skip
             forward_component = coord[0] * sign
             lateral_penalty   = abs(coord[1] - ball_coords[1]) * LAT_PASS_PENALTY
             in_range.append((forward_component - lateral_penalty, coord))
@@ -275,11 +289,11 @@ def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
     return ball_coords + np.array([sign, 0.0]) * MAX_PASS
 
 
-
 # ── Strategy assembly ─────────────────────────────────────────────────────────
 
 # PRE:  valid StrategyInput. Must return within TIME_LIMIT = 0.01s.
 # POST: StrategyOutput with 5 committed 2D positions, all constraints satisfied.
+#       state stores kickoff direction so consecutive kickoffs alternate sides.
 def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
 
     own_team    = strat_input.team
@@ -293,23 +307,21 @@ def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
     carrier_idx = ball.player if ball.team == own_team else -1
     new_coords  = own_coords.copy()
 
-# ── Kickoff: alternate direction each kickoff using prev_state ────────────
+    # ── Kickoff: pass back to own winger, alternate sides ────────────────────
+    # Detected by: we have the ball, it's at centre, our carrier is at centre.
     if (ball.team == own_team
             and np.linalg.norm(ball_coords) < 1.0
             and abs(own_coords[ball.player][0]) < 1.0):
         sign = 1.0 if own_team == 0 else -1.0
 
-        # flip y direction each kickoff, always pass BACK to own winger
-        prev  = strat_input.prev_state
-        flip  = -1.0 if (prev == 'kickoff_up') else 1.0
-
+        # flip y each kickoff using prev_state so opponent can't camp one side
+        prev        = strat_input.prev_state
+        flip        = -1.0 if (prev == 'kickoff_up') else 1.0
         kickoff_dir = np.array([-sign * 0.8, flip * 1.0])   # backward + sideways
         kickoff_dir = kickoff_dir / np.linalg.norm(kickoff_dir)
 
-        ickoff_dir = np.array([sign * 1.2, flip * 0.8])
-        kickoff_dir = kickoff_dir / np.linalg.norm(kickoff_dir)
-        target      = ball_coords + kickoff_dir * (DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05)
-        target[1]   = np.clip(target[1], -Pitch.Y_BOUND + 0.05, Pitch.Y_BOUND - 0.05)
+        target    = ball_coords + kickoff_dir * (DistanceLimits.MAX_SHOOTING_DISTANCE - 0.05)
+        target[1] = np.clip(target[1], -Pitch.Y_BOUND + 0.05, Pitch.Y_BOUND - 0.05)
         new_coords[ball.player] = target
 
         order = sort_players_by_distance(own_coords, ball_coords, carrier_idx)
@@ -325,7 +337,6 @@ def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
                                              DistanceLimits.MAX_RUNNING_DISTANCE - 0.05)
             new_coords[i] = clamp_to_pitch(candidate)
 
-        # store direction so next kickoff goes the other way
         next_state = 'kickoff_down' if flip > 0 else 'kickoff_up'
         return StrategyOutput(new_coords, next_state)
 
@@ -345,6 +356,12 @@ def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
                                    ball_coords, game_state, own_team, i)
         candidate = propose_move(pos, grad, ball_coords)
 
+        # if ball is free and reachable this turn, stop at the ball not past it
+        if ball.team is None:
+            dist_to_ball = np.linalg.norm(pos - ball_coords)
+            if dist_to_ball < DistanceLimits.MAX_RUNNING_DISTANCE:
+                candidate = ball_coords.copy()
+
         if ball.team is not None:
             min_dist  = (DistanceLimits.MIN_OWN_BALL_DISTANCE
                          if ball.team == own_team
@@ -359,9 +376,13 @@ def gradient_strategy(strat_input: StrategyInput) -> StrategyOutput:
     return StrategyOutput(new_coords, game_state)
 
 
-def benchmark(strategy, n=200):
-    state   = SessionState(kickoff_team=0)
-    times   = []
+# ── Benchmark ─────────────────────────────────────────────────────────────────
+
+# PRE:  strategy is a callable matching the StrategyInput → StrategyOutput signature.
+# POST: prints mean/max call duration and whether it's within TIME_LIMIT = 0.01s.
+def benchmark(strategy, n: int = 200) -> None:
+    state = SessionState(kickoff_team=0)
+    times = []
     for turn in range(n):
         inp   = state.get_strategy_input(0, state.strategy_states[0])
         start = time.perf_counter()
@@ -370,42 +391,18 @@ def benchmark(strategy, n=200):
         state.perform_iteration([strategy, easy_strategy], seed=turn)
     times = np.array(times)
     print(f"mean: {times.mean()*1000:.3f}ms  "
-          f"max: {times.max()*1000:.3f}ms  "
+          f"max:  {times.max()*1000:.3f}ms  "
           f"limit: 10.000ms  "
-          f"{'OK' if times.max() < 0.01 else 'OVER LIMIT'}")
+          f"{'OK' if times.max() < 0.01 else '*** OVER LIMIT ***'}")
+
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
 
-    from foosball import SessionState, easy_strategy
     benchmark(gradient_strategy)
 
+    # ── Win-rate test ─────────────────────────────────────────────────────────
     strategies = [gradient_strategy, easy_strategy]
-
-    frames  = []
-    points  = [0, 0]
-    state   = SessionState(kickoff_team=0)
-
-    for turn in range(1000):
-        frames.append((
-            state.player_coords[0].copy(),
-            state.player_coords[1].copy(),
-            state.ball.coords.copy(),
-            f"Turn {turn}  |  Blue {points[0]} – {points[1]} Red"
-        ))
-        winner = state.perform_iteration(strategies, seed=turn)
-        if winner in (0, 1):
-            points[winner] += 1
-            frames.append((
-                state.player_coords[0].copy(),
-                state.player_coords[1].copy(),
-                state.ball.coords.copy(),
-                f"GOAL — {'Blue' if winner==0 else 'Red'} scores!  "
-                f"|  Blue {points[0]} – {points[1]} Red"
-            ))
-            state = SessionState(kickoff_team=1 - winner)
-
-    # animation setup as before...
     state  = SessionState(kickoff_team=0)
     points = [0, 0]
     for turn in range(2000):
@@ -414,12 +411,13 @@ if __name__ == '__main__':
             points[winner] += 1
             state = SessionState(kickoff_team=1 - winner)
     total = points[0] + points[1]
-    print(f"Final: {points[0]}-{points[1]}  ({round(100*points[0]/total)}% win rate)")
+    pct   = round(100 * points[0] / total) if total > 0 else 0
+    print(f"Win rate: {points[0]}-{points[1]}  ({pct}%)")
+
     # ── Animation ─────────────────────────────────────────────────────────────
-    s0, s1 = gradient_strategy, easy_strategy
-    frames  = []
-    points  = [0, 0]
-    state   = SessionState(kickoff_team=0)
+    frames = []
+    points = [0, 0]
+    state  = SessionState(kickoff_team=0)
 
     for turn in range(1000):
         frames.append((
@@ -428,7 +426,7 @@ if __name__ == '__main__':
             state.ball.coords.copy(),
             f"Turn {turn}  |  Blue {points[0]} – {points[1]} Red"
         ))
-        winner = state.perform_iteration([s0, s1], seed=turn)
+        winner = state.perform_iteration(strategies, seed=turn)
         if winner in (0, 1):
             points[winner] += 1
             frames.append((
