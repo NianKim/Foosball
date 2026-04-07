@@ -23,62 +23,6 @@ BOUNDARY_W       = 2.7785    # wall decay width [m] — kicks in within ~3m of e
 
 LAT_PASS_PENALTY = 0.54    #inside ball_carrier
 
-import optuna
-
-def objective(trial):
-    # 1. Define the range for your parameters
-    # Adjust these bounds based on your intuition
-    params = {
-        # 1. Define ranges for EVERY parameter
-        'SIGMA_PLAYER':     trial.suggest_float('SIGMA_PLAYER', 5.0, 15.0),
-        'SIGMA_BALL':       trial.suggest_float('SIGMA_BALL', 5.0, 25.0),
-        'AMP_OWN_REPEL':    trial.suggest_float('AMP_OWN_REPEL', 0.1, 5.0),
-        'AMP_OPP_ATTACK':   trial.suggest_float('AMP_OPP_ATTACK', 0.5, 10.0),
-        'AMP_OPP_NEUTRAL':  trial.suggest_float('AMP_OPP_NEUTRAL', 0.1, 5.0),
-        'AMP_BALL_ATTACK':  trial.suggest_float('AMP_BALL_ATTACK', -10.0, 0.0),
-        'AMP_BALL_NEUTRAL': trial.suggest_float('AMP_BALL_NEUTRAL', -70.0, -20.0),
-        'AMP_BALL_DEFENSE': trial.suggest_float('AMP_BALL_DEFENSE', -60.0, -10.0),
-        'SOMBRERO_B':       trial.suggest_float('SOMBRERO_B', 0.1, 0.5),
-        'SOMBRERO_AMP':     trial.suggest_float('SOMBRERO_AMP', 1.0, 20.0),
-        'SLOPE_WEIGHT':     trial.suggest_float('SLOPE_WEIGHT', 0.3, 2.0),
-        'BOUNDARY_A':       trial.suggest_float('BOUNDARY_A', 40.0, 50.0),
-        'BOUNDARY_W':       trial.suggest_float('BOUNDARY_W', 2.0, 3.0),
-        #'LAT_PASS_PENALTY': trial.suggest_float('LAT_PASS_PENALTY', 0.0, 1.5)
-    }
-
-    # 2. Inject these parameters into a temporary version of your strategy
-    # We create a local wrapper so the simulation uses the "trial" constants
-    def tuned_strategy(strat_input):
-        # Override global constants with trial suggestions
-        # Note: In a real script, you'd pass these into total_gradient
-        global SIGMA_PLAYER, SIGMA_BALL, AMP_OWN_REPEL, AMP_BALL_ATTACK
-        global AMP_BALL_DEFENSE, SLOPE_WEIGHT, SOMBRERO_AMP
-        
-        SIGMA_PLAYER, SIGMA_BALL = params['SIGMA_PLAYER'], params['SIGMA_BALL']
-        AMP_OWN_REPEL = params['AMP_OWN_REPEL']
-        AMP_BALL_ATTACK = params['AMP_BALL_ATTACK']
-        AMP_BALL_DEFENSE = params['AMP_BALL_DEFENSE']
-        SLOPE_WEIGHT = params['SLOPE_WEIGHT']
-        SOMBRERO_AMP = params['SOMBRERO_AMP']
-        
-        return gradient_strategy(strat_input)
-
-    # 3. Run a simulation (fewer turns than 2000 to keep it fast while you eat)
-    from foosball import SessionState, easy_strategy
-    state = SessionState(kickoff_team=0)
-    points = [0, 0]
-    
-    # Run ~500 turns per trial to get a statistically significant win rate quickly
-    for turn in range(500):
-        winner = state.perform_iteration([tuned_strategy, easy_strategy], seed=turn)
-        if winner in (0, 1):
-            points[winner] += 1
-            state = SessionState(kickoff_team=1 - winner)
-            
-    # Return the win rate as the metric to maximize
-    total_goals = sum(points)
-    if total_goals == 0: return 0
-    return points[0] / total_goals
 
 # ── Mathematical functions ────────────────────────────────────────────────────
 
@@ -552,18 +496,4 @@ if __name__ == '__main__':
 
     btn_pause.on_clicked(on_pause)
     btn_skip.on_clicked(on_skip)
-    #plt.show()
-
-    # Create a study object and tell it to MAXIMIZE the objective
-    study = optuna.create_study(direction='maximize')
-    
-    print("Starting optimization... Go eat lunch!")
-    # n_trials=100 will run 100 different sets of constants. 
-    # Increase this if you have a long lunch!
-    study.optimize(objective, timeout=5400)
-
-    print("\nOptimization finished!")
-    print(f"Best Win Rate: {study.best_value:.2%}")
-    print("Best Parameters:")
-    for key, value in study.best_params.items():
-        print(f"{key} = {value:.4f}")
+    plt.show()
