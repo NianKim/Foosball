@@ -21,8 +21,7 @@ SLOPE_WEIGHT     = 0.6    # strength of global forward/backward tilt
 BOUNDARY_A       = 50.0   # wall repulsion amplitude
 BOUNDARY_W       = 2.3    # wall decay width [m] — kicks in within ~3m of edge
 
-LAT_PASS_PENALTY = 0.45    #inside ball_carrier
-TARGET_CONST     = 1.2    #inside ball_carrier
+LAT_PASS_PENALTY = 0.5    #inside ball_carrier (was 0.45 for 88 percent)
 
 # ── Mathematical functions ────────────────────────────────────────────────────
 
@@ -238,7 +237,7 @@ def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
 
     # Priority 1: shoot — aim past the line to guarantee crossing
     if abs(goal_x - ball_coords[0]) <= MAX_PASS:
-        target  = np.array([goal_x * TARGET_CONST, ball_coords[1]])
+        target  = np.array([goal_x * 1.1, ball_coords[1]])
         to_goal = target - ball_coords
         return ball_coords + (to_goal / np.linalg.norm(to_goal)) * MAX_PASS
 
@@ -274,18 +273,6 @@ def ball_carrier_action(ball_coords: np.ndarray, own_coords: np.ndarray,
 
     return ball_coords + np.array([sign, 0.0]) * MAX_PASS
 
-# ── Goalie ────────────────────────────────────────────────────────────────────
-
-# PRE:  ball_coords is current ball position. own_team is 0 or 1.
-# POST: target 2D position for goalie — holds near own goal, tracks ball's y.
-#       Advances slightly when ball is in the opponent's half.
-def goalie_target(ball_coords: np.ndarray, own_team: int) -> np.ndarray:
-    sign             = 1.0 if own_team == 0 else -1.0
-    ball_in_own_half = (ball_coords[0] * sign) < 0
-    target_x         = -GOALIE_X * sign if ball_in_own_half \
-                       else -(GOALIE_X - GOALIE_X_RANGE) * sign
-    target_y         = np.clip(ball_coords[1], -Pitch.Y_BOUND + 2.0, Pitch.Y_BOUND - 2.0)
-    return np.array([target_x, target_y])
 
 
 # ── Strategy assembly ─────────────────────────────────────────────────────────
